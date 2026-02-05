@@ -307,28 +307,35 @@
       const CLOCKWISE_NUMBERING = true;
 
       // =========================================================
-      // Posters
+      // Posters (generic)
       // =========================================================
-      const POSTER_COUNT = 38;
+      const POSTER_COUNT = 38;   // 10 + 10 + 8 + 10 = 38
       const PAD = 2;
-
+      
+      // Adjust these filename patterns to match your real files:
       function makePoster(i) {
         const n = PAD > 1 ? String(i).padStart(PAD, "0") : String(i);
         return {
           id: i,
-          src: `posters/MAP 2026_Page_${n}.png`,
-          thumbSrc: `thumbs/MAP 2026_Page_${n}.png`
+          src: `posters/poster_${n}.png`,
+          thumbSrc: `thumbs/poster_${n}.png`
         };
       }
+      
       const ALL_POSTERS = Array.from({ length: POSTER_COUNT }, (_, k) => makePoster(k + 1));
       function range(a, b) { const out=[]; for (let i=a;i<=b;i++) out.push(i); return out; }
-
+      
+      // =========================================================
+      // Walls (generic topics + counts)
+      // A: 10 posters, B: 10 posters, C (door wall): 8 posters, D: 10 posters
+      // =========================================================
       const WALLS = [
-        { key: "A", topic: "Advanced Processes", posterIds: range(1, 11), labelFor: (id) => `A${id}` },
-        { key: "B", topic: "Biomaterials and Bioprocessing", posterIds: range(12, 20), labelFor: (id) => `B${id}` },
-        { key: "C", topic: "Computational Materials Science and Process Simulation", posterIds: range(21, 28), labelFor: (id) => `C${id}`, hasDoor: true },
-        { key: "N", topic: "Nanomaterials and Nanotechnology", posterIds: range(29, 38), labelFor: (id) => `N${id}` }
+        { key: "A", topic: "Topic A", posterIds: range(1, 10),  labelFor: (_id, idx) => `A${idx + 1}` },
+        { key: "B", topic: "Topic B", posterIds: range(11, 20), labelFor: (_id, idx) => `B${idx + 1}` },
+        { key: "C", topic: "Topic C", posterIds: range(21, 28), labelFor: (_id, idx) => `C${idx + 1}`, hasDoor: true },
+        { key: "D", topic: "Topic D", posterIds: range(29, 38), labelFor: (_id, idx) => `D${idx + 1}` }
       ];
+
 
       // =========================================================
       // Controls (Desktop: arrows + Shift held)
@@ -510,8 +517,9 @@
 
       const glassMatA = makeTintedGlass(0x8a1018, 1.4);
       const glassMatB = makeTintedGlass(0x118a3a, 1.5);
-      const glassMatN = makeTintedGlass(0xd6a10f, 1.6);
       const glassMatC = makeTintedGlass(0xbfc6cf, 1.8);
+      const glassMatD = makeTintedGlass(0xd6a10f, 1.6);
+      
 
       const frameMat = new THREE.MeshStandardMaterial({
         color: 0x0a0a0b,
@@ -547,13 +555,13 @@
         A: { center: new THREE.Vector3(0, FLOOR_Y + ROOM_H/2, +HALF), inward: new THREE.Vector3(0,0,-1), tangent: new THREE.Vector3(1,0,0) },
         B: { center: new THREE.Vector3(-HALF, FLOOR_Y + ROOM_H/2, 0), inward: new THREE.Vector3( 1,0,0), tangent: new THREE.Vector3(0,0, 1) },
         C: { center: new THREE.Vector3(0, FLOOR_Y + ROOM_H/2, -HALF), inward: new THREE.Vector3(0,0, 1), tangent: new THREE.Vector3(-1,0,0) },
-        N: { center: new THREE.Vector3( HALF, FLOOR_Y + ROOM_H/2, 0), inward: new THREE.Vector3(-1,0,0), tangent: new THREE.Vector3(0,0,-1) }
+        D: { center: new THREE.Vector3( HALF, FLOOR_Y + ROOM_H/2, 0), inward: new THREE.Vector3(-1,0,0), tangent: new THREE.Vector3(0,0,-1) }
       };
 
       buildFullWall("A");
       buildFullWall("B");
       buildDoorWallC();
-      buildFullWall("N");
+      buildFullWall("D");
 
       // =========================================================
       // Viewing platform
@@ -1117,7 +1125,7 @@
           key === "A" ? glassMatA :
           key === "B" ? glassMatB :
           key === "C" ? glassMatC :
-          key === "N" ? glassMatN :
+          key === "D" ? glassMatD :
           glassMat;
         const wallPlane = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIDE, ROOM_H), mat);
         wallPlane.renderOrder = 0;
@@ -1261,14 +1269,14 @@
         else {
           const count = posters.length;
           let start = Math.floor((slotCount - count) / 2);
-          if (wall.key === "N" && count === 10) start = 0;
+          if (wall.key === "D" && count === 10) start = 0;
           slotIndices = Array.from({ length: count }, (_, i) => start + i);
         }
 
         for (let i = 0; i < posters.length; i++) {
           const p = posters[i];
           const id = ids[i];
-          const codeLabel = wall.labelFor(id);
+          const codeLabel = wall.labelFor(id, i);
 
           const slotIndex = slotIndices[i];
           const offset = (slotIndex - (slotCount - 1) / 2) * slotStep;
