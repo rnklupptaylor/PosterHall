@@ -1,0 +1,1445 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>3D Poster Session (mobile motion + on-screen movement)</title>
+    <style>
+      html, body { height: 100%; margin: 0; overflow: hidden; background: #000; }
+      canvas { display: block; }
+
+      #hud{
+        position:fixed; inset:0; pointer-events:none;
+        font:14px/1.35 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+        color:rgba(255,255,255,0.92);
+      }
+      #help{
+        position:absolute; left:12px; top:12px;
+        background:rgba(0,0,0,0.45);
+        padding:10px 12px; border-radius:10px; max-width:860px;
+      }
+      /* Collapsible help panel */
+      #help{
+        overflow:hidden;
+      }
+      #helpHeader{
+        display:flex;
+        align-items:center;
+        gap:10px;
+        margin-bottom:8px;
+      }
+      #helpToggle{
+        pointer-events:auto;
+        margin-left:auto;
+        border:1px solid rgba(255,255,255,0.25);
+        background:rgba(255,255,255,0.10);
+        color:rgba(255,255,255,0.95);
+        padding:6px 10px;
+        border-radius:10px;
+        cursor:pointer;
+        font:600 12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      }
+
+      #helpBody{
+        max-height: 1000px;
+        opacity: 1;
+        transition: max-height 200ms ease, opacity 200ms ease;
+      }
+
+      #help.stowed #helpBody{
+        max-height: 0;
+        opacity: 0;
+      }
+
+      #help.stowed{
+        padding-bottom: 8px;
+      }
+
+
+
+      #status{
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      top: auto;
+      right: auto;
+      z-index: 30;
+
+      background: rgba(0,0,0,0.35);
+      padding: 8px 10px;
+      border-radius: 10px;
+      white-space: pre-wrap;
+      max-width: 70vw;
+      pointer-events: none;
+      }
+
+      /* Mobile controls (D-pad + motion permission) */
+          #mobileControls{
+        position:fixed;
+        right:14px;
+        bottom:18px;
+        transform:none;
+        z-index:20;
+        pointer-events:auto;
+        user-select:none;
+        -webkit-user-select:none;
+        touch-action:none;
+        display:none; /* enabled via JS on coarse pointers */
+      }
+
+      #motionRow{
+        display:flex;
+        justify-content:center;
+        margin-bottom:10px;
+      }
+
+      #motionBtn{
+        border:1px solid rgba(255,255,255,0.25);
+        background:rgba(255,255,255,0.10);
+        color:rgba(255,255,255,0.95);
+        padding:10px 12px;
+        border-radius:12px;
+        font:600 14px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+        cursor:pointer;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+      }
+
+      #dpad{
+        width:176px; height:176px;
+        display:grid;
+        grid-template-columns: repeat(3, 1fr);
+        grid-template-rows: repeat(3, 1fr);
+        gap:10px;
+        padding:10px;
+        border-radius:22px;
+        background:rgba(0,0,0,0.22);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        box-shadow: 0 10px 28px rgba(0,0,0,0.45);
+        touch-action:none;
+      }
+
+      .padBtn{
+        border:1px solid rgba(255,255,255,0.22);
+        background:rgba(255,255,255,0.10);
+        color:rgba(255,255,255,0.95);
+        border-radius:18px;
+        font:700 20px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+        display:flex; align-items:center; justify-content:center;
+        cursor:pointer;
+        touch-action:none;
+      }
+      .padBtn:active { transform: scale(0.98); background: rgba(255,255,255,0.16); }
+
+      .padUp    { grid-column: 2; grid-row: 1; }
+      .padLeft  { grid-column: 1; grid-row: 2; }
+      .padRight { grid-column: 3; grid-row: 2; }
+      .padDown  { grid-column: 2; grid-row: 3; }
+
+      /* Viewer overlay */
+      #viewer{
+        position:fixed; inset:0; display:none;
+        background:rgba(0,0,0,0.92);
+        z-index:10;
+      }
+      #viewer.open{ display:block; }
+      #viewerTopbar{
+        position:absolute; left:0; right:0; top:0;
+        display:flex; gap:10px; align-items:center;
+        padding:10px 12px;
+        background:rgba(0,0,0,0.55);
+        color:rgba(255,255,255,0.92);
+        font:14px/1.2 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+        user-select:none;
+      }
+      #closeBtn{
+        pointer-events:auto;
+        border:1px solid rgba(255,255,255,0.25);
+        background:rgba(255,255,255,0.10);
+        color:rgba(255,255,255,0.95);
+        padding:6px 10px; border-radius:10px;
+        cursor:pointer;
+      }
+      #viewerHint{ opacity:0.8; }
+      #viewerStage{
+        position:absolute; inset:44px 0 0 0;
+        overflow:hidden; cursor:grab;
+      }
+      #viewerStage.dragging{ cursor:grabbing; }
+      #viewerImg{
+        position:absolute; left:0; top:0;
+        transform-origin:0 0;
+        will-change:transform;
+        user-select:none;
+        -webkit-user-drag:none;
+        pointer-events:none;
+      }
+
+      /* Slightly tighter help/status on phones */
+      @media (max-width: 900px){
+        #help{ max-width: calc(100vw - 24px); font-size: 12px; }
+        #status{ max-width: calc(100vw - 24px); font-size: 12px; }
+      }
+    </style>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js"
+        }
+      }
+    </script>
+  </head>
+
+  <body>
+    <div id="hud">
+      <div id="help">
+        <div id="helpHeader">
+            <div><b>Controls</b></div>
+            <button id="helpToggle" type="button" aria-expanded="true">Hide</button>
+        </div>
+        <div id="helpBody">
+        <div><b>Desktop controls (arrow keys + Shift held)</b></div>
+        <div>↑ forward · ↓ backward · ← turn left · → turn right</div>
+        <div><b>Hold Shift</b>: Shift+↑ look up · Shift+↓ look down · Shift+← sidestep left · Shift+→ sidestep right</div>
+        <div><b>Click</b> poster: open viewer · <b>Shift+Click</b> poster: move &amp; aim to center it</div>
+        <div><b>Esc</b> closes viewer</div>
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.15);margin:10px 0;">
+        <div><b>Phone controls</b></div>
+        <div>Tap <b>Enable Motion</b> (first time only) → pan/tilt by moving the phone.</div>
+        <div>Use the on-screen arrows to move <b>forward/back/sideways</b>.</div>
+        &nbsp;
+        <div>App created by Prof. Robin Klupp Taylor (FAU Erlangen-Nürnberg) with the help of ChatGPT 5.2</div>
+      </div>
+      </div>
+      <div id="status">Loading…</div>
+      </div>
+
+    <!-- Mobile control overlay -->
+    <div id="mobileControls" aria-hidden="true">
+      <div id="motionRow">
+        <button id="motionBtn" type="button">Enable Motion</button>
+      </div>
+      <div id="dpad" role="group" aria-label="Movement controls">
+        <button class="padBtn padUp" type="button" aria-label="Move forward">▲</button>
+        <button class="padBtn padLeft" type="button" aria-label="Move left">◀</button>
+        <button class="padBtn padRight" type="button" aria-label="Move right">▶</button>
+        <button class="padBtn padDown" type="button" aria-label="Move backward">▼</button>
+      </div>
+    </div>
+
+    <div id="viewer" aria-hidden="true">
+      <div id="viewerTopbar">
+        <button id="closeBtn">Close</button>
+        <div id="viewerHint">Scroll = zoom, drag = pan</div>
+        <div id="viewerTitle" style="margin-left:auto;opacity:.85;"></div>
+      </div>
+      <div id="viewerStage">
+        <img id="viewerImg" alt="Poster" />
+      </div>
+    </div>
+
+    <script type="module">
+      import * as THREE from "three";
+
+      // ================================
+      // On-page error reporting
+      // ================================
+      const statusEl = document.getElementById("status");
+      function setStatus(s) { statusEl.textContent = s; }
+      window.addEventListener("error", (e) => {
+        setStatus(`ERROR:\n${e.message}\n${e.filename || ""}:${e.lineno || ""}`);
+      });
+      window.addEventListener("unhandledrejection", (e) => {
+        setStatus(`ERROR (promise):\n${e.reason?.message || String(e.reason)}`);
+      });
+
+      // =========================================================
+      // Mobile detection + UI
+      // =========================================================
+      const isCoarsePointer = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+      const uaMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+      const isPhoneMode = isCoarsePointer || uaMobile;
+      // Help panel stow/open logic
+      const helpEl = document.getElementById("help");
+      const helpToggle = document.getElementById("helpToggle");
+
+      function setHelpStowed(stowed){
+        helpEl.classList.toggle("stowed", stowed);
+        if (helpToggle) {
+          helpToggle.setAttribute("aria-expanded", String(!stowed));
+          helpToggle.textContent = stowed ? "Show" : "Hide";
+        }
+      }
+
+      // Default: desktop open, phone stowed
+      setHelpStowed(isPhoneMode);
+
+      helpToggle?.addEventListener("click", (e) => {
+        e.preventDefault();
+        const currentlyStowed = helpEl.classList.contains("stowed");
+        setHelpStowed(!currentlyStowed);
+      });
+      const mobileControls = document.getElementById("mobileControls");
+      const motionBtn = document.getElementById("motionBtn");
+      const padUp = mobileControls.querySelector(".padUp");
+      const padDown = mobileControls.querySelector(".padDown");
+      const padLeft = mobileControls.querySelector(".padLeft");
+      const padRight = mobileControls.querySelector(".padRight");
+    
+
+      if (isPhoneMode) {
+        mobileControls.style.display = "block";
+        mobileControls.setAttribute("aria-hidden", "false");
+      }
+
+      // =========================================================
+      // USER SETTINGS
+      // =========================================================
+      const PANORAMA_URL = "assets/panorama.jpg";
+
+      // If your panorama "center" is not straight ahead when facing out of the door,
+      // adjust this (degrees). 0 means "straight out of the door" (negative Z).
+      const PANORAMA_YAW_DEG = 0;
+
+      // Clockwise numbering around room: reverse per-wall placement order.
+      const CLOCKWISE_NUMBERING = true;
+
+      // =========================================================
+      // Posters
+      // =========================================================
+      const POSTER_COUNT = 38;
+      const PAD = 2;
+
+      function makePoster(i) {
+        const n = PAD > 1 ? String(i).padStart(PAD, "0") : String(i);
+        return {
+          id: i,
+          src: `posters/MAP 2026_Page_${n}.png`,
+          thumbSrc: `thumbs/MAP 2026_Page_${n}.png`
+        };
+      }
+      const ALL_POSTERS = Array.from({ length: POSTER_COUNT }, (_, k) => makePoster(k + 1));
+      function range(a, b) { const out=[]; for (let i=a;i<=b;i++) out.push(i); return out; }
+
+      const WALLS = [
+        { key: "A", topic: "Advanced Processes", posterIds: range(1, 11), labelFor: (id) => `A${id}` },
+        { key: "B", topic: "Biomaterials and Bioprocessing", posterIds: range(12, 20), labelFor: (id) => `B${id}` },
+        { key: "C", topic: "Computational Materials Science and Process Simulation", posterIds: range(21, 28), labelFor: (id) => `C${id}`, hasDoor: true },
+        { key: "N", topic: "Nanomaterials and Nanotechnology", posterIds: range(29, 38), labelFor: (id) => `N${id}` }
+      ];
+
+      // =========================================================
+      // Controls (Desktop: arrows + Shift held)
+      // Mobile: sensors for yaw/pitch, on-screen arrows for movement
+      // =========================================================
+      const keys = { up:false, down:false, left:false, right:false, shift:false };
+
+      document.addEventListener("keydown", (e) => {
+        if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
+        if (e.code === "ShiftLeft" || e.code === "ShiftRight") keys.shift = true;
+
+        if (e.code === "ArrowUp") keys.up = true;
+        if (e.code === "ArrowDown") keys.down = true;
+        if (e.code === "ArrowLeft") keys.left = true;
+        if (e.code === "ArrowRight") keys.right = true;
+
+        if (e.code === "Escape" && viewer.classList.contains("open")) closeViewer();
+      });
+
+      document.addEventListener("keyup", (e) => {
+        if (e.code === "ShiftLeft" || e.code === "ShiftRight") keys.shift = false;
+
+        if (e.code === "ArrowUp") keys.up = false;
+        if (e.code === "ArrowDown") keys.down = false;
+        if (e.code === "ArrowLeft") keys.left = false;
+        if (e.code === "ArrowRight") keys.right = false;
+      });
+
+      // Mobile D-pad bindings (hold-to-move)
+      function bindHold(button, downFn, upFn) {
+        if (!button) return;
+        const up = () => { try { upFn(); } catch {} };
+
+        button.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          try { button.setPointerCapture(e.pointerId); } catch {}
+          downFn();
+        }, { passive: false });
+
+        button.addEventListener("pointerup", (e) => { e.preventDefault(); e.stopPropagation(); up(); }, { passive: false });
+        button.addEventListener("pointercancel", (e) => { e.preventDefault(); e.stopPropagation(); up(); }, { passive: false });
+        button.addEventListener("lostpointercapture", up, { passive: true });
+
+        // Avoid a stuck state if finger slides off
+        button.addEventListener("pointerleave", () => up(), { passive: true });
+      }
+
+      if (isPhoneMode) {
+        // In phone mode: arrows are movement ONLY (left/right = sidestep).
+        bindHold(padUp,   () => { keys.up = true; },   () => { keys.up = false; });
+        bindHold(padDown, () => { keys.down = true; }, () => { keys.down = false; });
+        bindHold(padLeft, () => { keys.left = true; }, () => { keys.left = false; });
+        bindHold(padRight,() => { keys.right = true; },() => { keys.right = false; });
+
+        
+      }
+
+      // =========================================================
+      // Status
+      // =========================================================
+      let thumbsLoaded = 0;
+      let thumbsFailed = 0;
+      function updateStatus(extra = "") {
+        const line1 = extra ? `${extra}\n` : "";
+        setStatus(`${line1}Thumbnails: ${thumbsLoaded}/${POSTER_COUNT} (failed: ${thumbsFailed})`);
+      }
+      updateStatus("Starting…");
+
+      // =========================================================
+      // Three.js setup
+      // =========================================================
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.Fog(0x060607, 18, 220);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      document.body.appendChild(renderer.domElement);
+
+      const FLOOR_Y = 5.0;
+      const EYE_H = 1.65;
+
+      const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 900);
+      camera.position.set(0, FLOOR_Y + EYE_H, 0);
+      camera.rotation.order = "YXZ";
+      scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+      const keyLight = new THREE.DirectionalLight(0xffffff, 0.65);
+      keyLight.position.set(-2, 6, 3);
+      scene.add(keyLight);
+
+      // =========================================================
+      // Texture helpers
+      // =========================================================
+      function canvasTextureFromCanvas(canvas) {
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.generateMipmaps = false;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        return tex;
+      }
+
+      function canvasTextureForFloor(canvas) {
+        const tex = new THREE.CanvasTexture(canvas);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.generateMipmaps = true;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        return tex;
+      }
+
+      // =========================================================
+      // Panorama background
+      // =========================================================
+      const bgLoader = new THREE.TextureLoader();
+      updateStatus("Loading panorama…");
+
+      bgLoader.load(
+        encodeURI(PANORAMA_URL),
+        (tex) => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.mapping = THREE.EquirectangularReflectionMapping;
+          tex.generateMipmaps = true;
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+
+          scene.background = tex;
+
+          const yawRad = THREE.MathUtils.degToRad(PANORAMA_YAW_DEG);
+          if ("backgroundRotation" in scene) scene.backgroundRotation.set(0, yawRad, 0);
+
+          const pmrem = new THREE.PMREMGenerator(renderer);
+          pmrem.compileEquirectangularShader();
+          const envTex = pmrem.fromEquirectangular(tex).texture;
+          pmrem.dispose();
+          scene.environment = envTex;
+          if ("environmentRotation" in scene) scene.environmentRotation.set(0, yawRad, 0);
+
+          updateStatus("Panorama loaded.");
+        },
+        undefined,
+        () => {
+          updateStatus("Panorama failed to load.");
+        }
+      );
+
+      // =========================================================
+      // Room geometry
+      // =========================================================
+      const ROOM_SIDE = 26;
+      const ROOM_H = 3.4;
+      const HALF = ROOM_SIDE / 2;
+
+      const glassMat = new THREE.MeshPhysicalMaterial({
+        color: 0x0f1318,
+        roughness: 0.12,
+        metalness: 0.0,
+        transmission: 0.85,
+        thickness: 0.12,
+        ior: 1.0,
+        transparent: true,
+        opacity: 1.0,
+        side: THREE.FrontSide,
+        depthWrite: false
+      });
+
+      function makeTintedGlass(absorbHex, distance) {
+        const m = glassMat.clone();
+        m.color.setHex(0xffffff);
+        m.thickness = 0.5;
+        m.attenuationColor = new THREE.Color(absorbHex);
+        m.attenuationDistance = distance;
+        m.ior = 1.0;
+        m.side = THREE.FrontSide;
+        return m;
+      }
+
+      const glassMatA = makeTintedGlass(0x8a1018, 1.4);
+      const glassMatB = makeTintedGlass(0x118a3a, 1.5);
+      const glassMatN = makeTintedGlass(0xd6a10f, 1.6);
+      const glassMatC = makeTintedGlass(0xbfc6cf, 1.8);
+
+      const frameMat = new THREE.MeshStandardMaterial({
+        color: 0x0a0a0b,
+        roughness: 0.9,
+        metalness: 0.1
+      });
+
+      const woodCanvas = makeWoodTileTextureCanvas(1024, 1024);
+      const woodTex = canvasTextureForFloor(woodCanvas);
+      woodTex.wrapS = woodTex.wrapT = THREE.RepeatWrapping;
+      woodTex.repeat.set(5, 5);
+      woodTex.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
+      woodTex.needsUpdate = true;
+
+      const roomFloor = new THREE.Mesh(
+        new THREE.PlaneGeometry(ROOM_SIDE, ROOM_SIDE),
+        new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.65, metalness: 0.05 })
+      );
+      roomFloor.rotation.x = -Math.PI / 2;
+      roomFloor.position.y = FLOOR_Y;
+      scene.add(roomFloor);
+
+      addRoomFrame();
+
+      // =========================================================
+      // Walls and door
+      // =========================================================
+      const DOOR_W = 3.2;
+      const DOOR_H = 2.4;
+      const DOOR_HALF_W = DOOR_W / 2;
+
+      const wallDefs = {
+        A: { center: new THREE.Vector3(0, FLOOR_Y + ROOM_H/2, +HALF), inward: new THREE.Vector3(0,0,-1), tangent: new THREE.Vector3(1,0,0) },
+        B: { center: new THREE.Vector3(-HALF, FLOOR_Y + ROOM_H/2, 0), inward: new THREE.Vector3( 1,0,0), tangent: new THREE.Vector3(0,0, 1) },
+        C: { center: new THREE.Vector3(0, FLOOR_Y + ROOM_H/2, -HALF), inward: new THREE.Vector3(0,0, 1), tangent: new THREE.Vector3(-1,0,0) },
+        N: { center: new THREE.Vector3( HALF, FLOOR_Y + ROOM_H/2, 0), inward: new THREE.Vector3(-1,0,0), tangent: new THREE.Vector3(0,0,-1) }
+      };
+
+      buildFullWall("A");
+      buildFullWall("B");
+      buildDoorWallC();
+      buildFullWall("N");
+
+      // =========================================================
+      // Viewing platform
+      // =========================================================
+      const PLATFORM_D = 9.0;
+      const PLATFORM_W = 10.0;
+
+      const platform = new THREE.Mesh(
+        new THREE.PlaneGeometry(PLATFORM_W, PLATFORM_D),
+        new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 1.0 })
+      );
+      platform.rotation.x = -Math.PI/2;
+      platform.position.set(0, FLOOR_Y, -HALF - PLATFORM_D/2);
+      scene.add(platform);
+
+      const railH = 1.1;
+      const railT = 0.08;
+      const railMat = new THREE.MeshPhysicalMaterial({
+        color: 0x0f1318,
+        roughness: 0.10,
+        transmission: 0.85,
+        thickness: 0.08,
+        transparent: true,
+        opacity: 0.25,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      });
+
+      const railL = new THREE.Mesh(new THREE.BoxGeometry(railT, railH, PLATFORM_D), railMat);
+      railL.position.set(-PLATFORM_W/2, FLOOR_Y + railH/2, -HALF - PLATFORM_D/2);
+      scene.add(railL);
+
+      const railR = railL.clone();
+      railR.position.x = +PLATFORM_W/2;
+      scene.add(railR);
+
+      const railF = new THREE.Mesh(new THREE.BoxGeometry(PLATFORM_W, railH, railT), railMat);
+      railF.position.set(0, FLOOR_Y + railH/2, -HALF - PLATFORM_D);
+      scene.add(railF);
+
+      // =========================================================
+      // Poster meshes + picking
+      // =========================================================
+      function makeTextTexture({ text, width=1024, height=256, bg="rgba(0,0,0,0.55)", fg="rgba(255,255,255,0.95)", font="bold 72px system-ui, sans-serif" }) {
+        const c = document.createElement("canvas");
+        c.width = width; c.height = height;
+        const g = c.getContext("2d");
+        g.fillStyle = bg; g.fillRect(0,0,width,height);
+        g.fillStyle = fg; g.font = font;
+        g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText(text, width/2, height/2);
+        return canvasTextureFromCanvas(c);
+      }
+
+      function fallbackPosterTexture(label) {
+        const c = document.createElement("canvas");
+        c.width = 512; c.height = 768;
+        const g = c.getContext("2d");
+        g.fillStyle = "#101113"; g.fillRect(0,0,c.width,c.height);
+        g.strokeStyle = "rgba(255,255,255,0.25)";
+        g.lineWidth = 10;
+        g.strokeRect(20,20,c.width-40,c.height-40);
+        g.fillStyle = "rgba(255,255,255,0.9)";
+        g.font = "bold 44px system-ui, sans-serif";
+        g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText(label, c.width/2, c.height/2);
+        return canvasTextureFromCanvas(c);
+      }
+
+      const thumbLoader = new THREE.TextureLoader();
+
+      // A-series portrait: height / width = sqrt(2)
+      const POSTER_H = 1.45;
+      const POSTER_W = POSTER_H / Math.SQRT2;
+      const POSTER_FORWARD_Z = 0.03;
+      const FRAME_BACK_Z = -0.040;
+      const FRAME_THICKNESS = 0.028;
+
+      const posterMeshes = [];
+      const posterByMesh = new Map();
+
+      for (const w of WALLS) {
+        const def = wallDefs[w.key];
+        addWallTopicLabel(w, def);
+        addWallPosters(w, def);
+      }
+
+      // =========================================================
+      // Mouse ray + click behavior
+      // =========================================================
+      const raycaster = new THREE.Raycaster();
+      const mouseNDC = new THREE.Vector2(0,0);
+      let hoveredMesh = null;
+
+      function updateMouseNDC(ev) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouseNDC.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+        mouseNDC.y = -(((ev.clientY - rect.top) / rect.height) * 2 - 1);
+      }
+
+      window.addEventListener("pointermove", (e) => {
+        if (viewer.classList.contains("open")) return;
+        updateMouseNDC(e);
+      });
+
+      window.addEventListener("click", (e) => {
+        if (viewer.classList.contains("open")) return;
+
+        // Avoid clicks on mobile UI overlay triggering poster clicks
+        if (isPhoneMode) {
+          const path = e.composedPath?.() ?? [];
+          if (path.includes(mobileControls)) return;
+        }
+
+        updateMouseNDC(e);
+        raycaster.setFromCamera(mouseNDC, camera);
+        const hits = raycaster.intersectObjects(posterMeshes, false);
+        if (!hits.length) return;
+
+        const mesh = hits[0].object;
+        const meta = posterByMesh.get(mesh);
+        if (!meta) return;
+
+        if (e.shiftKey) focusPoster(mesh);
+        else openViewer(meta.viewerTitle, meta.fullSrc);
+      });
+
+      function updateHover() {
+        if (viewer.classList.contains("open")) return;
+
+        raycaster.setFromCamera(mouseNDC, camera);
+        const hits = raycaster.intersectObjects(posterMeshes, false);
+        const hit = hits.length ? hits[0].object : null;
+
+        if (hit !== hoveredMesh) {
+          if (hoveredMesh) hoveredMesh.material.color.setHex(0xffffff);
+          hoveredMesh = hit;
+          if (hoveredMesh) hoveredMesh.material.color.setHex(0xfff3cc);
+        }
+
+        if (hoveredMesh) {
+          const meta = posterByMesh.get(hoveredMesh);
+          updateStatus(meta ? `Hover: ${meta.codeLabel}` : "");
+        } else {
+          updateStatus("");
+        }
+      }
+
+      // =========================================================
+      // Camera motion + focus animation
+      // =========================================================
+      let yaw = Math.PI;
+      let pitch = 0;
+      const yawSpeed = 1.6;
+      const pitchSpeed = 1.15;
+      const pitchMin = THREE.MathUtils.degToRad(-35);
+      const pitchMax = THREE.MathUtils.degToRad(35);
+
+      const clock = new THREE.Clock();
+      const forward = new THREE.Vector3();
+      const rightVec = new THREE.Vector3();
+      const upVec = new THREE.Vector3(0,1,0);
+
+      const walkSpeed = 2.6;
+      const strafeSpeed = 2.2;
+
+      let focusTween = null;
+
+      function lerpAngle(a, b, t) {
+        const TWO_PI = Math.PI * 2;
+        let d = (b - a) % TWO_PI;
+        if (d > Math.PI) d -= TWO_PI;
+        if (d < -Math.PI) d += TWO_PI;
+        return a + d * t;
+      }
+
+      function dampAngle(a, b, lambda, dt) {
+        const t = 1 - Math.exp(-lambda * dt);
+        return lerpAngle(a, b, t);
+      }
+      function damp(a, b, lambda, dt) {
+        const t = 1 - Math.exp(-lambda * dt);
+        return a + (b - a) * t;
+      }
+
+      function clampInsideRoom(pos) {
+        const margin = 0.55;
+        pos.x = THREE.MathUtils.clamp(pos.x, -HALF + margin, HALF - margin);
+        pos.z = THREE.MathUtils.clamp(pos.z, -HALF + margin, HALF - margin);
+      }
+
+      const PLATFORM_MIN_Z = -HALF - PLATFORM_D;
+      const PLATFORM_HALF_W = PLATFORM_W / 2;
+
+      function constrainPosition(pos) {
+        const margin = 0.55;
+        pos.y = FLOOR_Y + EYE_H;
+
+        const onPlatform = pos.z < (-HALF - 0.05);
+        if (onPlatform) {
+          pos.x = THREE.MathUtils.clamp(pos.x, -PLATFORM_HALF_W + margin, PLATFORM_HALF_W - margin);
+          pos.z = THREE.MathUtils.clamp(pos.z, PLATFORM_MIN_Z + margin, -HALF + margin);
+          return;
+        }
+
+        pos.x = THREE.MathUtils.clamp(pos.x, -HALF + margin, HALF - margin);
+
+        if (pos.z < -HALF + margin) {
+          if (Math.abs(pos.x) <= DOOR_HALF_W - 0.05) {
+            // through door
+          } else {
+            pos.z = -HALF + margin;
+          }
+        } else {
+          pos.z = THREE.MathUtils.clamp(pos.z, -HALF + margin, HALF - margin);
+        }
+      }
+
+      function focusPoster(mesh) {
+        const meta = posterByMesh.get(mesh);
+        if (!meta) return;
+
+        const posterCenter = new THREE.Vector3();
+        mesh.getWorldPosition(posterCenter);
+
+        const def = wallDefs[meta.wallKey];
+        const inward = def.inward.clone().normalize();
+
+        const desiredPos = posterCenter.clone().add(inward.multiplyScalar(3.2));
+        desiredPos.y = FLOOR_Y + EYE_H;
+        clampInsideRoom(desiredPos);
+
+        const aimPoint = new THREE.Vector3(posterCenter.x, FLOOR_Y + EYE_H, posterCenter.z);
+
+        const dx = aimPoint.x - desiredPos.x;
+        const dz = aimPoint.z - desiredPos.z;
+        const targetYaw = Math.atan2(-dx, -dz);
+
+        focusTween = {
+          t: 0,
+          dur: 0.85,
+          startPos: camera.position.clone(),
+          startYaw: yaw,
+          startPitch: pitch,
+          endPos: desiredPos,
+          endYaw: targetYaw,
+          endPitch: 0
+        };
+
+        updateStatus(`Focusing ${meta.codeLabel}…`);
+      }
+
+      // =========================================================
+      // Motion sensors (phone): pan (yaw) + tilt (pitch)
+      // =========================================================
+      let sensorEnabled = false;
+      let sensorSupported = false;
+      let haveSensorReading = false;
+
+      let pendingRecenter = false;
+      let yawOffset = 0;
+      let pitchOffset = 0;
+
+      let sensorTargetYaw = 0;
+      let sensorTargetPitch = 0;
+
+      // Based on the math used by Three.js DeviceOrientationControls (adapted).
+      const _zee = new THREE.Vector3(0, 0, 1);
+      const _eulerDO = new THREE.Euler();
+      const _q0 = new THREE.Quaternion();
+      const _q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // -PI/2 around the x-axis
+      const _quat = new THREE.Quaternion();
+      const _eulerFromQuat = new THREE.Euler(0, 0, 0, "YXZ");
+
+      function getScreenOrientationRad() {
+        const angleDeg = (screen.orientation && typeof screen.orientation.angle === "number")
+          ? screen.orientation.angle
+          : (typeof window.orientation === "number" ? window.orientation : 0);
+        return THREE.MathUtils.degToRad(angleDeg);
+      }
+
+      function setObjectQuaternion(quaternion, alpha, beta, gamma, orient) {
+        // 'ZXY' for the device, but we will extract camera yaw/pitch afterwards
+        _eulerDO.set(beta, alpha, -gamma, "YXZ"); // note: order chosen to match common DO controls
+        quaternion.setFromEuler(_eulerDO);
+        quaternion.multiply(_q1);
+        quaternion.multiply(_q0.setFromAxisAngle(_zee, -orient));
+      }
+
+      function requestSensorRecenter() {
+        pendingRecenter = true;
+      }
+
+      function onDeviceOrientation(event) {
+        // event.alpha/beta/gamma are degrees
+        const alpha = THREE.MathUtils.degToRad(event.alpha ?? 0);
+        const beta  = THREE.MathUtils.degToRad(event.beta ?? 0);
+        const gamma = THREE.MathUtils.degToRad(event.gamma ?? 0);
+        const orient = getScreenOrientationRad();
+
+        setObjectQuaternion(_quat, alpha, beta, gamma, orient);
+
+        _eulerFromQuat.setFromQuaternion(_quat, "YXZ");
+        const rawPitch = _eulerFromQuat.x;
+        const rawYaw   = _eulerFromQuat.y;
+
+        if (!haveSensorReading || pendingRecenter) {
+          // Align current phone orientation to current camera yaw/pitch
+          yawOffset = yaw - rawYaw;
+          pitchOffset = pitch - rawPitch;
+          pendingRecenter = false;
+          haveSensorReading = true;
+        }
+
+        sensorTargetYaw = rawYaw + yawOffset;
+        sensorTargetPitch = rawPitch + pitchOffset;
+        sensorTargetPitch = THREE.MathUtils.clamp(sensorTargetPitch, pitchMin, pitchMax);
+      }
+
+      async function enableMotionSensors() {
+        if (sensorEnabled) return;
+
+        // Must be in a secure context on most browsers.
+        if (!window.isSecureContext) {
+          updateStatus("Motion sensors require HTTPS (secure context).");
+          return;
+        }
+
+        if (typeof DeviceOrientationEvent === "undefined") {
+          updateStatus("DeviceOrientation not available on this device/browser.");
+          return;
+        }
+
+        sensorSupported = true;
+
+        try {
+          // iOS requires explicit permission
+          if (typeof DeviceOrientationEvent.requestPermission === "function") {
+            const res = await DeviceOrientationEvent.requestPermission();
+            if (res !== "granted") {
+              updateStatus("Motion permission denied.");
+              return;
+            }
+          }
+
+          window.addEventListener("deviceorientation", onDeviceOrientation, true);
+          sensorEnabled = true;
+          requestSensorRecenter();
+          motionBtn.style.display = "none";
+          motionBtn.disabled = true;
+          updateStatus("Motion enabled: pan/tilt with phone. Tap Center to re-center.");
+        } catch (err) {
+          updateStatus("Failed to enable motion sensors.");
+          console.error(err);
+        }
+      }
+
+      if (isPhoneMode) {
+        motionBtn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          enableMotionSensors();
+        }, { passive: false });
+      }
+
+      // =========================================================
+      // Viewer overlay (fit full height)
+      // =========================================================
+      const viewer = document.getElementById("viewer");
+      const viewerStage = document.getElementById("viewerStage");
+      const viewerImg = document.getElementById("viewerImg");
+      const viewerTitle = document.getElementById("viewerTitle");
+      const closeBtn = document.getElementById("closeBtn");
+
+      let vScale = 1, vTx = 0, vTy = 0;
+      let dragging = false, lastX = 0, lastY = 0;
+
+      function applyViewerTransform() {
+        viewerImg.style.transform = `translate(${vTx}px, ${vTy}px) scale(${vScale})`;
+      }
+
+      function fitViewerToFullHeight() {
+        const rect = viewerStage.getBoundingClientRect();
+        const H = rect.height, W = rect.width;
+        const imgH = viewerImg.naturalHeight || 1;
+        const imgW = viewerImg.naturalWidth || 1;
+
+        vScale = H / imgH;
+        const scaledW = imgW * vScale;
+        const scaledH = imgH * vScale;
+        vTx = (W - scaledW) / 2;
+        vTy = (H - scaledH) / 2;
+        applyViewerTransform();
+      }
+
+      function openViewer(title, src) {
+        viewer.classList.add("open");
+        viewer.setAttribute("aria-hidden", "false");
+        viewerTitle.textContent = title;
+        viewerImg.onload = () => fitViewerToFullHeight();
+        viewerImg.src = encodeURI(src);
+
+        // Hide mobile controls while viewer is open
+        if (isPhoneMode) mobileControls.style.display = "none";
+      }
+
+      function closeViewer() {
+        viewer.classList.remove("open");
+        viewer.setAttribute("aria-hidden", "true");
+        viewerImg.src = "";
+        dragging = false;
+        viewerStage.classList.remove("dragging");
+
+        if (isPhoneMode) mobileControls.style.display = "block";
+      }
+
+      closeBtn.addEventListener("click", closeViewer);
+
+      viewerStage.addEventListener("pointerdown", (e) => {
+        dragging = true;
+        viewerStage.classList.add("dragging");
+        lastX = e.clientX; lastY = e.clientY;
+      });
+
+      window.addEventListener("pointerup", () => {
+        dragging = false;
+        viewerStage.classList.remove("dragging");
+      });
+
+      window.addEventListener("pointermove", (e) => {
+        if (!viewer.classList.contains("open")) return;
+        if (!dragging) return;
+        vTx += (e.clientX - lastX);
+        vTy += (e.clientY - lastY);
+        lastX = e.clientX; lastY = e.clientY;
+        applyViewerTransform();
+      });
+
+      viewerStage.addEventListener("wheel", (e) => {
+        if (!viewer.classList.contains("open")) return;
+        e.preventDefault();
+        const rect = viewerStage.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const py = e.clientY - rect.top;
+
+        const oldScale = vScale;
+        const factor = (Math.sign(e.deltaY) > 0) ? 0.90 : 1.10;
+        const newScale = THREE.MathUtils.clamp(oldScale * factor, 0.05, 20.0);
+
+        const wx = (px - vTx) / oldScale;
+        const wy = (py - vTy) / oldScale;
+
+        vScale = newScale;
+        vTx = px - wx * vScale;
+        vTy = py - wy * vScale;
+        applyViewerTransform();
+      }, { passive: false });
+
+      // =========================================================
+      // Render loop
+      // =========================================================
+      function animate() {
+        requestAnimationFrame(animate);
+
+        const dt = Math.min(clock.getDelta(), 0.05);
+        const viewerOpen = viewer.classList.contains("open");
+
+        if (!viewerOpen) {
+          if (focusTween) {
+            focusTween.t += dt;
+            const t = Math.min(1, focusTween.t / focusTween.dur);
+            const tt = t * t * (3 - 2*t);
+
+            camera.position.lerpVectors(focusTween.startPos, focusTween.endPos, tt);
+            yaw = lerpAngle(focusTween.startYaw, focusTween.endYaw, tt);
+            pitch = focusTween.startPitch + (focusTween.endPitch - focusTween.startPitch) * tt;
+
+            pitch = THREE.MathUtils.clamp(pitch, pitchMin, pitchMax);
+            constrainPosition(camera.position);
+
+            camera.rotation.y = yaw;
+            camera.rotation.x = pitch;
+
+            if (t >= 1) focusTween = null;
+          } else {
+            // --- Rotation control ---
+            if (isPhoneMode && sensorEnabled && sensorSupported && haveSensorReading) {
+              // Phone: yaw/pitch from sensors (smoothed)
+              yaw = dampAngle(yaw, sensorTargetYaw, 12.0, dt);
+              pitch = damp(pitch, sensorTargetPitch, 12.0, dt);
+              pitch = THREE.MathUtils.clamp(pitch, pitchMin, pitchMax);
+            } else {
+              // Desktop: SHIFT held => pitch/strafe; otherwise => yaw/forward/back
+              if (!keys.shift) {
+                if (keys.left)  yaw += yawSpeed * dt;
+                if (keys.right) yaw -= yawSpeed * dt;
+              } else {
+                if (keys.up)   pitch += pitchSpeed * dt; // Shift+Up: look up
+                if (keys.down) pitch -= pitchSpeed * dt; // Shift+Down: look down
+                pitch = THREE.MathUtils.clamp(pitch, pitchMin, pitchMax);
+              }
+            }
+
+            camera.rotation.y = yaw;
+            camera.rotation.x = pitch;
+
+            // --- Movement control ---
+            const move = new THREE.Vector3();
+
+            camera.getWorldDirection(forward);
+            forward.y = 0;
+            if (forward.lengthSq() < 1e-8) forward.set(0, 0, -1);
+            forward.normalize();
+
+            rightVec.crossVectors(forward, upVec).normalize();
+
+            if (isPhoneMode) {
+              // Phone: arrows are movement only: up/down = forward/back, left/right = strafe
+              if (keys.up) move.add(forward);
+              if (keys.down) move.sub(forward);
+              if (keys.left) move.sub(rightVec);
+              if (keys.right) move.add(rightVec);
+
+              if (move.lengthSq() > 0) move.normalize().multiplyScalar(walkSpeed * dt);
+            } else {
+              // Desktop: existing scheme
+              if (!keys.shift) {
+                if (keys.up) move.add(forward);
+                if (keys.down) move.sub(forward);
+                if (move.lengthSq() > 0) move.normalize().multiplyScalar(walkSpeed * dt);
+              } else {
+                if (keys.left) move.sub(rightVec);
+                if (keys.right) move.add(rightVec);
+                if (move.lengthSq() > 0) move.normalize().multiplyScalar(strafeSpeed * dt);
+              }
+            }
+
+            camera.position.add(move);
+            constrainPosition(camera.position);
+          }
+        }
+
+        updateHover();
+        renderer.render(scene, camera);
+      }
+      animate();
+
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        if (viewer.classList.contains("open") && viewerImg.src) fitViewerToFullHeight();
+      });
+
+      // =========================================================
+      // Build walls / frames / posters
+      // =========================================================
+      function buildFullWall(key) {
+        const def = wallDefs[key];
+        const mat =
+          key === "A" ? glassMatA :
+          key === "B" ? glassMatB :
+          key === "C" ? glassMatC :
+          key === "N" ? glassMatN :
+          glassMat;
+        const wallPlane = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_SIDE, ROOM_H), mat);
+        wallPlane.renderOrder = 0;
+        wallPlane.position.copy(def.center);
+        wallPlane.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), def.inward);
+        scene.add(wallPlane);
+      }
+
+      function buildDoorWallC() {
+        const def = wallDefs["C"];
+        const wallW = ROOM_SIDE;
+        const wallH = ROOM_H;
+
+        const sideW = (wallW - DOOR_W) / 2;
+
+        const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), def.inward);
+
+        const leftSeg = new THREE.Mesh(new THREE.PlaneGeometry(sideW, wallH), glassMatC);
+        leftSeg.position.copy(def.center).add(def.tangent.clone().multiplyScalar(-(DOOR_W/2 + sideW/2)));
+        leftSeg.quaternion.copy(q);
+        scene.add(leftSeg);
+
+        const rightSeg = new THREE.Mesh(new THREE.PlaneGeometry(sideW, wallH), glassMatC);
+        rightSeg.position.copy(def.center).add(def.tangent.clone().multiplyScalar(+(DOOR_W/2 + sideW/2)));
+        rightSeg.quaternion.copy(q);
+        scene.add(rightSeg);
+
+        const transomH = ROOM_H - DOOR_H;
+        if (transomH > 0.01) {
+          const transom = new THREE.Mesh(new THREE.PlaneGeometry(DOOR_W, transomH), glassMatC);
+          transom.position.set(def.center.x, FLOOR_Y + DOOR_H + transomH / 2, def.center.z);
+          transom.quaternion.copy(q);
+          transom.renderOrder = 0;
+          scene.add(transom);
+        }
+
+        const frameT = 0.12;
+        const frameDepth = 0.12;
+
+        const jambL = new THREE.Mesh(new THREE.BoxGeometry(frameT, DOOR_H, frameDepth), frameMat);
+        jambL.position.set(-DOOR_W/2 - frameT/2, FLOOR_Y + DOOR_H/2, -HALF);
+        scene.add(jambL);
+
+        const jambR = jambL.clone();
+        jambR.position.x = +DOOR_W/2 + frameT/2;
+        scene.add(jambR);
+
+        const head = new THREE.Mesh(new THREE.BoxGeometry(DOOR_W + frameT*2, frameT, frameDepth), frameMat);
+        head.position.set(0, FLOOR_Y + DOOR_H + frameT/2, -HALF);
+        scene.add(head);
+      }
+
+      function addRoomFrame() {
+        const postW = 0.12;
+        const y = FLOOR_Y + ROOM_H/2;
+
+        const post = new THREE.Mesh(new THREE.BoxGeometry(postW, ROOM_H, postW), frameMat);
+        const corners = [
+          new THREE.Vector3(+HALF, y, +HALF),
+          new THREE.Vector3(+HALF, y, -HALF),
+          new THREE.Vector3(-HALF, y, +HALF),
+          new THREE.Vector3(-HALF, y, -HALF)
+        ];
+        for (const c of corners) {
+          const p = post.clone();
+          p.position.copy(c);
+          scene.add(p);
+        }
+
+        const beamH = 0.10;
+        const beamZ = new THREE.Mesh(new THREE.BoxGeometry(ROOM_SIDE, beamH, postW), frameMat);
+        beamZ.position.set(0, FLOOR_Y + ROOM_H, +HALF);
+        scene.add(beamZ);
+        const beamZ2 = beamZ.clone();
+        beamZ2.position.z = -HALF;
+        scene.add(beamZ2);
+
+        const beamX = new THREE.Mesh(new THREE.BoxGeometry(postW, beamH, ROOM_SIDE), frameMat);
+        beamX.position.set(+HALF, FLOOR_Y + ROOM_H, 0);
+        scene.add(beamX);
+        const beamX2 = beamX.clone();
+        beamX2.position.x = -HALF;
+        scene.add(beamX2);
+      }
+
+      function applyCoverCrop(tex, planeAspect) {
+        const img = tex.image;
+        const texAspect = (img?.width && img?.height) ? (img.width / img.height) : 1;
+
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+
+        if (planeAspect < texAspect) {
+          const rx = planeAspect / texAspect;
+          tex.repeat.set(rx, 1);
+          tex.offset.set((1 - rx) / 2, 0);
+        } else {
+          const ry = texAspect / planeAspect;
+          tex.repeat.set(1, ry);
+          tex.offset.set(0, (1 - ry) / 2);
+        }
+
+        tex.needsUpdate = true;
+      }
+
+      function addWallTopicLabel(wall, def) {
+        const text = `${wall.topic}`;
+        const tex = makeTextTexture({ text, width: 2048, height: 128, font: "bold 72px system-ui, sans-serif" });
+
+        const labelW = (wall.key === "C") ? 6.0 : 5.0;
+        const labelH = 0.3;
+
+        const mesh = new THREE.Mesh(
+          new THREE.PlaneGeometry(labelW, labelH),
+          new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.95, side: THREE.FrontSide })
+        );
+
+        const pos = def.center.clone();
+        pos.y = FLOOR_Y + ROOM_H - 0.35;
+        pos.add(def.inward.clone().multiplyScalar(0.18));
+
+        mesh.position.copy(pos);
+        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), def.inward);
+        mesh.renderOrder = 5;
+        scene.add(mesh);
+      }
+
+      function addWallPosters(wall, def) {
+        const slotCount = 11;
+        const wallUsable = ROOM_SIDE - 2.6;
+        const slotStep = wallUsable / (slotCount - 1);
+        const posterCenterY = FLOOR_Y + 1.70;
+
+        let ids = wall.posterIds.slice();
+        if (CLOCKWISE_NUMBERING) ids.reverse();
+
+        const posters = ids.map((id) => ALL_POSTERS[id - 1]);
+
+        let slotIndices;
+        if (wall.key === "C") slotIndices = [0,1,2,3,7,8,9,10];
+        else {
+          const count = posters.length;
+          let start = Math.floor((slotCount - count) / 2);
+          if (wall.key === "N" && count === 10) start = 0;
+          slotIndices = Array.from({ length: count }, (_, i) => start + i);
+        }
+
+        for (let i = 0; i < posters.length; i++) {
+          const p = posters[i];
+          const id = ids[i];
+          const codeLabel = wall.labelFor(id);
+
+          const slotIndex = slotIndices[i];
+          const offset = (slotIndex - (slotCount - 1) / 2) * slotStep;
+
+          const center = def.center.clone();
+          center.y = posterCenterY;
+          center.add(def.tangent.clone().multiplyScalar(offset));
+          center.add(def.inward.clone().multiplyScalar(0.22));
+
+          const group = new THREE.Group();
+          group.position.copy(center);
+          group.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), def.inward);
+
+          const posterMat = new THREE.MeshBasicMaterial({
+            map: fallbackPosterTexture(codeLabel),
+            color: 0xffffff,
+            side: THREE.FrontSide,
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2
+          });
+
+          const posterMesh = new THREE.Mesh(new THREE.PlaneGeometry(POSTER_W, POSTER_H), posterMat);
+          posterMesh.position.z = POSTER_FORWARD_Z;
+          group.add(posterMesh);
+
+          const frame = new THREE.Mesh(
+            new THREE.BoxGeometry(POSTER_W + 0.10, POSTER_H + 0.10, FRAME_THICKNESS),
+            frameMat
+          );
+          frame.position.z = FRAME_BACK_Z;
+          group.add(frame);
+
+          // --- Poster code label (match texture aspect to plane aspect to avoid stretching)
+          const labelPlaneW = POSTER_W + 0.10;
+          const labelPlaneH = 0.22;
+          const labelAspect = labelPlaneW / labelPlaneH;
+
+          // Choose a texture width, then compute height to match the plane aspect
+          const texW = 1024;
+          const texH = Math.max(128, Math.round(texW / labelAspect)); // ~200 for your current sizes
+
+          const labelTex = makeTextTexture({
+            text: codeLabel,
+            width: texW,
+            height: texH,
+            // font size ~60–70% of texture height usually looks good
+            font: `800 ${Math.round(texH * 0.65)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`,
+            bg: "rgba(0,0,0,0.55)",
+            fg: "rgba(255,255,255,0.95)"
+          });
+
+          // Optional: slightly crisper + less shimmer at distance
+          labelTex.generateMipmaps = true;
+          labelTex.minFilter = THREE.LinearMipmapLinearFilter;
+          labelTex.magFilter = THREE.LinearFilter;
+          labelTex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+          labelTex.needsUpdate = true;
+
+          const labelMesh = new THREE.Mesh(
+            new THREE.PlaneGeometry(labelPlaneW, labelPlaneH),
+            new THREE.MeshBasicMaterial({ map: labelTex, transparent: true, opacity: 0.95, side: THREE.FrontSide })
+          );
+          labelMesh.position.set(0, POSTER_H/2 + 0.18, 0.030);
+          labelMesh.renderOrder = 6;
+          group.add(labelMesh);
+
+          scene.add(group);
+
+          posterMeshes.push(posterMesh);
+          posterByMesh.set(posterMesh, {
+            codeLabel,
+            wallKey: wall.key,
+            viewerTitle: `${codeLabel} — Poster ${id}`,
+            fullSrc: p.src,
+            thumbSrc: p.thumbSrc
+          });
+
+          const url = encodeURI(p.thumbSrc);
+          thumbLoader.load(
+            url,
+            (tex) => {
+              tex.colorSpace = THREE.SRGBColorSpace;
+              tex.wrapS = THREE.ClampToEdgeWrapping;
+              tex.wrapT = THREE.ClampToEdgeWrapping;
+              tex.generateMipmaps = true;
+              tex.minFilter = THREE.LinearMipmapLinearFilter;
+              tex.magFilter = THREE.LinearFilter;
+              tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+              applyCoverCrop(tex, POSTER_W / POSTER_H);
+              posterMesh.material.map = tex;
+              posterMesh.material.needsUpdate = true;
+
+              thumbsLoaded++;
+              updateStatus("");
+            },
+            undefined,
+            () => {
+              thumbsFailed++;
+              updateStatus("");
+            }
+          );
+        }
+      }
+
+      // =========================================================
+      // Procedural wood tiling (canvas only)
+      // =========================================================
+      function makeWoodTileTextureCanvas(w, h) {
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        const g = c.getContext("2d");
+
+        let seed = 1337;
+        function rand() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
+
+        g.fillStyle = "#6f4a2b";
+        g.fillRect(0, 0, w, h);
+
+        const tiles = 6;
+        const tw = w / tiles;
+        const th = h / tiles;
+
+        for (let ty = 0; ty < tiles; ty++) {
+          for (let tx = 0; tx < tiles; tx++) {
+            const x0 = tx * tw;
+            const y0 = ty * th;
+
+            const v = 0.85 + 0.25 * (rand() - 0.5);
+            g.fillStyle = `rgba(${Math.floor(120*v)},${Math.floor(80*v)},${Math.floor(45*v)},0.95)`;
+            g.fillRect(x0, y0, tw, th);
+
+            g.save();
+            g.translate(x0, y0);
+            const angle = (rand() < 0.5) ? 0 : Math.PI/2;
+            g.rotate(angle);
+
+            const len = Math.max(tw, th);
+            const wid = Math.min(tw, th);
+
+            for (let i = 0; i < 90; i++) {
+              const yy = rand() * wid;
+              const alpha = 0.05 + 0.06 * rand();
+              const thick = 0.5 + 1.0 * rand();
+              g.strokeStyle = `rgba(20,10,5,${alpha})`;
+              g.lineWidth = thick;
+              g.beginPath();
+              g.moveTo(0, yy);
+              g.bezierCurveTo(len*0.3, yy + (rand()-0.5)*8, len*0.6, yy + (rand()-0.5)*8, len, yy + (rand()-0.5)*4);
+              g.stroke();
+            }
+            g.restore();
+
+            g.strokeStyle = "rgba(0,0,0,0.22)";
+            g.lineWidth = 3;
+            g.strokeRect(x0+1.5, y0+1.5, tw-3, th-3);
+
+            g.strokeStyle = "rgba(255,255,255,0.06)";
+            g.lineWidth = 2;
+            g.strokeRect(x0+3, y0+3, tw-6, th-6);
+          }
+        }
+
+        const vg = g.createRadialGradient(w/2, h/2, w*0.05, w/2, h/2, w*0.75);
+        vg.addColorStop(0, "rgba(0,0,0,0)");
+        vg.addColorStop(1, "rgba(0,0,0,0.16)");
+        g.fillStyle = vg;
+        g.fillRect(0, 0, w, h);
+
+        return c;
+      }
+    </script>
+  </body>
+</html>
